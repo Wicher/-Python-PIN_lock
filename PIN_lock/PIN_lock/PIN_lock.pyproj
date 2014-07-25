@@ -15,7 +15,7 @@
     <InterpreterId>{932a07a2-c5b9-44cf-9c5a-b8f0a06e6724}</InterpreterId>
     <InterpreterVersion>2.7</InterpreterVersion>
     <LaunchProvider>Standard Python launcher</LaunchProvider>
-    <CommandLineArguments>-d</CommandLineArguments>
+    <CommandLineArguments>-c 42 -l</CommandLineArguments>
     <InterpreterPath />
     <InterpreterArguments />
     <EnableNativeCodeDebugging>False</EnableNativeCodeDebugging>
@@ -33,6 +33,9 @@
   </ItemGroup>
   <ItemGroup>
     <InterpreterReference Include="{932a07a2-c5b9-44cf-9c5a-b8f0a06e6724}\2.7" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="PIN.txt" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.Common.targets" />
 </Project>
