@@ -15,15 +15,13 @@ import os
 import serial
 import time
 import getopt
+import random
 
 timeout = 2
-IMSI = 0
 
 #PIN and PUK codes
-PIN = 0
-PUK = 0
-PIN_def = 1111
-PUK_def = 11111111
+PIN = ''
+PUK = ''
 
 class AT:
     #COMMANDS
@@ -31,8 +29,10 @@ class AT:
     CPIN_check  = 'AT+CPIN?\r\n'
     SIM_enable  = 'AT+CFUN=1\r\n'
     SIM_disable = 'AT+CFUN=0\r\n'
-    PIN_enter   = "AT+CPIN=" + str(PIN) + "\r\n"
-    PUK_enter   = "AT+CPIN=" + str(PUK) + "," + str(PIN) + "\r\n"
+    
+    #poprawic na metody!!!
+    PIN_enter   = "AT+CPIN=" + PIN + "\r\n"
+    PUK_enter   = "AT+CPIN=" + PUK + "," + PIN + "\r\n"
     
     #RESPONSES
     OK          = 'OK\r\n'
@@ -64,8 +64,8 @@ def main(argv):
                 Options.activate_modem()
                 sys.exit()
             elif opt in ("-c", "--comport"):
+                Methods.import_PIN()
                 Options.connect(connection,arg)
-                Methods.importPIN(connection,argv)
                 break
             else:
                 print "No com port specified"
@@ -75,7 +75,7 @@ def main(argv):
             if opt in ("-l", "--lock"):
                 Commands.pin_lock(connection)   
             elif opt in ("-b", "--block"):
-                Commands.puk_block(connection)
+                Commands.puk_block(connection)                
             elif opt in ("-p", "--pin"):
                 Commands.pin_enter(connection)    
             elif opt in ("-s", "--state"):
@@ -86,9 +86,8 @@ def main(argv):
                 print "No com port specified"
                 assert False, "No com port specified"    
     else:
-        print "Input port number or name: ",
-        port = raw_input().upper()
-        pin_lock(connection,port)
+        Options.help()
+        sys.exit()
 
 ###############################################################################
 #                               OPTIONS                                       #
@@ -100,13 +99,13 @@ class Options:
     #============================== HELP ======================================
     @staticmethod
     def help():
-        print "========== HELP =========="
+        print "==================== HELP ===================="
         print "syntax: \n \t PIN_lock.py [option] ([command]...) \n \t"
         print "Support for parameter chaining (direction from left to right) \n"
+        print "Please remember to update PIN.txt with SIM card's PIN and PUK codes\n"
         print "Option:"
         print "  -h --help      Show this help message and exit"
         print "  -m --modem     Activate modem and exit"
-        print "  -C --codes     Print PIN and PUK codes"
         print "  -c --comport   Connect to specified COM port"
         print "Command:"
         print "  -l --lock      PIN lock device"
@@ -118,7 +117,7 @@ class Options:
     #============================== MODEM =====================================
     @staticmethod
     def activate_modem():
-        os.system(modem_activate)
+        os.system(Options.modem_activate)
 
     #============================== CONNECTION ================================
     @staticmethod
@@ -178,7 +177,27 @@ class Commands:
     #============================== PUK BLOCK =================================
     @staticmethod
     def puk_block(connection):
-        pass
+        if not connection.isOpen():
+            connection.open()
+        seq = []
+        leave = False
+        connection.write(AT.CPIN_check)
+        while True:
+            seq.append(connection.readline())
+            if AT.lock_PIN in seq:
+                for counter in range(3):
+                    PIN = Methods.random_PIN()
+                    connection.write("AT+CPIN=" + PIN + "\r\n")
+                    print PIN
+                    time.sleep(1)
+                break
+        Commands.pin_state(connection)
+           
+        
+        
+        connection.close() 
+
+
 
     #============================== PIN ENTER =================================
     @staticmethod
@@ -192,6 +211,11 @@ class Commands:
             seq.append(connection.readline())
             if AT.lock_PIN in seq:
                 seq = []
+
+                print type(PIN)
+                print type(PUK)
+
+
                 connection.write(AT.PIN_enter)
                 time.sleep(1)
                 connection.write(AT.CPIN_check)
@@ -296,58 +320,44 @@ class Commands:
 class Methods:
     
     fName = "PIN.txt"
-
+    
     #============================== IMPORT PIN ================================
     @staticmethod
-    def importPIN(connection,argv):
-        if not connection.isOpen():
-            connection.open()
-        seq = []
-        success = False
-        connection.write(AT.IMSI_check)
-        end_time = time.time() + timeout
-        while True:
-            if time.time() >= end_time: 
-                print "Timed Out"
-                sys.exit(1)
-            else:
-                seq.append(connection.readline())
-                if AT.OK in seq:
-                    break
-        IMSI    = seq[1].rstrip('\r\n')
+    def import_PIN():
+        global PIN
+        global PUK
         seq = []
         try:
             with open(Methods.fName) as file:
-                for line in file:
-                    seq = line.split('-')
-                    if seq[0] == IMSI:
-                        print "Found valid IMSI. Using provided PIN and PUK codes"
-                        PIN = seq[1]
-                        PUK = seq[2]
-                        success = True
-                        break
-        except IOError:
-            print "Could not read file: " + fName
-        if success is not True:
-            print "Valid IMSI not found. Using default PIN and PUK codes"
-            PIN = PIN_def
-            PUK = PUK_def
-        print "PIN: " + str(PIN)
-        print "PUK: " + str(PUK)          
-        
-        if success is not True and len(argv)>2:
-            answer = raw_input("Are you sure you want to continue? (Y/N)").upper()
-            if answer == "Y":
-                pass
-            else:
-                print "Aborting"
-                sys.exit(1)       
-        connection.close()
+                for line in file :
+                    seq = line.split(' ')               
+                    if seq[0] == "PIN":
+                        PIN = str(seq[2].rstrip('\r\n'))
+                    if seq[0] == "PUK":
+                        PUK = str(seq[2].rstrip('\r\n'))
+        except IOError: 
+            print "Could not read file: " + fName   
+        print "PIN: " + PIN
+        print "PUK: " + PUK
+        #answer = raw_input("Proceed? (Y/N)",).upper()
+        #sys.stdin.flush()
+        #if answer == 'Y':
+        #    pass
+        #else:
+        #    sys.exit(1)
+        #return (PIN, PUK)
+
+    #============================== RANDOM PIN ================================
+    @staticmethod
+    def random_PIN():
+        wrong_PIN = ''
+        for counter in range(4):
+            wrong_PIN += str(random.randint(0,9))
+        return wrong_PIN
 
 #============================== MAIN ==========================================
 if __name__ == "__main__":
     main(sys.argv[1:])
 
-
-# Add CPIN_READY to Import PIN ( Device must be unlocked!!!)
-# Fill the PUK block function
+# Modify the PUK block function
+# Modify Import PIN
