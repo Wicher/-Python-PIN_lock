@@ -15,7 +15,7 @@
     <InterpreterId>{932a07a2-c5b9-44cf-9c5a-b8f0a06e6724}</InterpreterId>
     <InterpreterVersion>2.7</InterpreterVersion>
     <LaunchProvider>Standard Python launcher</LaunchProvider>
-    <CommandLineArguments>-c 42 -p</CommandLineArguments>
+    <CommandLineArguments>-c 42 -p -l -s</CommandLineArguments>
     <InterpreterPath />
     <InterpreterArguments />
     <EnableNativeCodeDebugging>False</EnableNativeCodeDebugging>

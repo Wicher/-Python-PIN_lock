@@ -10,18 +10,23 @@
 # * Author: bartosz.zawieja@tieto.com                        *
 # * All rights, including trade secret rights, reserved.     *
 # ************************************************************
-import sys
-import os 
-import serial
-import time
-import getopt
-import random
+try:
+    import sys
+    import os 
+    import serial
+    import time
+    import getopt
+    import random
+except ImportError, error:
+    print "Error while loading modules: " + str(error)
 
 timeout = 2
 
 #PIN and PUK codes
 PIN         = ''
 PUK         = ''
+PIN_def     = '1111'
+PUK_def     = '11111111'
 
 class AT:
     #COMMANDS
@@ -84,7 +89,7 @@ def main(argv):
             elif opt in ("-p", "--pin"):
                 Commands.pin_enter(connection)    
             elif opt in ("-s", "--state"):
-                Commands.pin_state(connection)  
+                Commands.pin_state(connection, True, True) 
             elif opt in ("-r", "--reset"):
                 Commands.pin_reset(connection)
             else:
@@ -99,7 +104,7 @@ def main(argv):
 ###############################################################################
 class Options:
     modem_activate = "adb root && timeout 2 && adb remount && adb shell setprop persist.usb.eng 1 && adb shell setprop sys.usb.config mtp,adb && timeout 3"
-    #============================== HELP ======================================
+    #============================== HELP ====================================== OK
     @staticmethod
     def help():
         print "==================== HELP ===================="
@@ -117,12 +122,12 @@ class Options:
         print "  -s --state     Get SIM lock state"
         print "  -r --reset     Reset the PUK locked device with default PIN code"
 
-    #============================== MODEM =====================================
+    #============================== MODEM ===================================== OK
     @staticmethod
     def activate_modem():
         os.system(Options.modem_activate)
 
-    #============================== CONNECTION ================================
+    #============================== CONNECTION ================================ OK
     @staticmethod
     def connect(connection,port):
         if "COM" in port.upper():
@@ -144,44 +149,23 @@ class Options:
 #                               COMMANDS                                      #
 ###############################################################################
 class Commands:
-    #============================== PIN LOCK ==================================
+    #============================== PIN LOCK ================================== OK
     @staticmethod
-    def pin_lock(connection):
-        if not connection.isOpen():
-            connection.open()
-        seq = []
-        leave = False
-        connection.write(AT.CPIN_check)
-        while True:
-            seq.append(connection.readline())
-            if AT.CPIN_ready in seq:
-                seq = []
-                connection.write(AT.SIM_disable)
-                time.sleep(1)
-                print "Locking phone..."
-                connection.write(AT.SIM_enable)
-                time.sleep(1)
-                connection.write(AT.CPIN_check)
-                end_time = time.time() + timeout
-                while True:
-                    if time.time() >= end_time:
-                        print "Timed Out"
-                        sys.exit(1)
-                    else:
-                        seq.append(connection.readline())
-                        if AT.lock_PIN in seq:
-                            print "Device is locked"
-                            leave = True
-                            break
-            elif AT.OK in seq:
+    def pin_lock(connection):    
+        if AT.CPIN_ready == Commands.pin_state(connection):
+            connection.write(AT.SIM_disable)
+            time.sleep(1)
+            print "Locking phone..."
+            connection.write(AT.SIM_enable)
+            time.sleep(1)
+            if AT.lock_PIN == Commands.pin_state(connection):
                 print "Device is locked"
-                break
-         
-            if leave is True:
-                break
-        connection.close()
+            else:
+                print "Lock failed - actual state: " + Commands.pin_state(connection)
+        elif Commands.pin_state(connection,True,True):
+            pass
 
-    #============================== PUK BLOCK =================================
+    #============================== PUK BLOCK ================================= TO DO
     @staticmethod
     def puk_block(connection):
         if not connection.isOpen():
@@ -202,50 +186,22 @@ class Commands:
                
         connection.close() 
 
-
-
-    #============================== PIN ENTER =================================
+    #============================== PIN ENTER ================================= OK
     @staticmethod
     def pin_enter(connection):
-        if not connection.isOpen():
-            connection.open()
-        seq = []
-        leave = False
-        connection.write(AT.CPIN_check)
-        while True:
-            seq.append(connection.readline())
-            if AT.lock_PIN in seq:
-                seq = []
-                connection.write(AT.PIN_enter(PIN))
-                time.sleep(1)
-                connection.write(AT.CPIN_check)
-                end_time = time.time() + timeout
-                while True:
-                    if time.time() >= end_time:
-                        print "Timed Out"
-                        sys.exit(1)
-                    else:
-                        seq.append(connection.readline())
-                        if AT.CPIN_ready in seq:
-                            print "Device is unlocked"
-                            leave = True
-                            break
-            elif AT.CPIN_ready in seq:
-                print "Device is not PIN locked"
-                break
-            elif AT.lock_PUK in seq:
-                print "Device is PUK locked"
-                break
-            elif AT.OK in seq:
-                break
-         
-            if leave is True:
-                break
-        connection.close() 
+        if AT.lock_PIN == Commands.pin_state(connection):
+            connection.write(AT.PIN_enter(PIN))
+            time.sleep(1)
+            if AT.CPIN_ready == Commands.pin_state(connection):
+                print "Device is unlocked"
+            else:
+                print "Unlock failed - actual state: " + Commands.pin_state(connection)
+        elif Commands.pin_state(connection,True,True):
+            pass
 
-    #============================== PIN STATE =================================
+    #============================== PIN STATE ================================= OK
     @staticmethod
-    def pin_state(connection):
+    def pin_state(connection, printable=False, disconnect=False):
         if not connection.isOpen():
             connection.open()
         seq = []
@@ -258,29 +214,45 @@ class Commands:
             else:
                 seq.append(connection.readline())
                 if AT.CPIN_ready in seq:
-                    print "Device is unlocked"
+                    if printable == True:
+                        print "Device is unlocked"
+                    result = AT.CPIN_ready
                     break
                 elif AT.lock_PIN in seq:
-                    print "Device is PIN locked";
+                    if printable == True:
+                        print "Device is PIN locked"
+                    result = AT.lock_PIN
                     break
                 elif AT.lock_PUK in seq:
-                    print "Device is PUK locked";
+                    if printable == True:
+                        print "Device is PUK locked"
+                    result = AT.lock_PUK
                     break
                 elif AT.lock_PIN2 in seq:
-                    print "Device is PIN2 locked"; 
+                    if printable == True:
+                        print "Device is PIN2 locked"
+                    result = AT.lock_PIN2
                     break
                 elif AT.lock_PUK2 in seq:
-                    print "Device is PUK2 locked";
+                    if printable == True:
+                        print "Device is PUK2 locked"
+                    result = AT.lock_PUK2
                     break
                 elif AT.lock_PH_SIM in seq:
-                    print "SIM lock is required";
+                    if printable == True:
+                        print "SIM lock is required"
+                    result = AT.lock_PH_SIM
                     break
                 elif AT.lock_PH_NT in seq:
-                    print "Network personalisation is required";
-                    break
-        connection.close() 
+                    if printable == True:
+                        print  "Network personalisation is required"
+                    result = AT.lock_PH_NT
+                    break 
+        if disconnect == True:
+            connection.close()
+        return result 
 
-    #============================== PIN RESET =================================
+    #============================== PIN RESET ================================= TO DO
     @staticmethod
     def pin_reset(connection):
         if not connection.isOpen():
@@ -319,7 +291,7 @@ class Commands:
 ###############################################################################
 class Methods:
     fName = "PIN.txt"
-    #============================== IMPORT PIN ================================
+    #============================== IMPORT PIN ================================ OK
     @staticmethod
     def import_PIN():
         global PIN
@@ -333,16 +305,19 @@ class Methods:
                     if seq[0] == "PUK":
                         PUK = str(seq[2].rstrip('\r\n'))
         except IOError: 
-            print "Could not read file: " + fName   
+            print "Could not read file: " + fName
+            print "Using default codes"
+            PIN = PIN_def
+            PUK = PUK_def   
         print "PIN: " + PIN
         print "PUK: " + PUK
-        answer = raw_input("Proceed? (Y/N)").upper()
+        answer = raw_input("Proceed? (Y/N): ").upper()
         if answer == 'Y' or answer == '':
             pass
         else:
             sys.exit(1)
 
-    #============================== RANDOM PIN ================================
+    #============================== RANDOM PIN ================================ OK
     @staticmethod
     def random_PIN():
         wrong_PIN = ''
@@ -352,8 +327,9 @@ class Methods:
             wrong_PIN = random_PIN()
         return wrong_PIN
 
-#============================== MAIN ==========================================
+#============================== MAIN ========================================== OK
 if __name__ == "__main__":
     main(sys.argv[1:])
 
-# Modify the PUK block function
+# Modify the PUK_block and PIN_reset function
+# Add labels
