@@ -11,16 +11,18 @@
 # * All rights, including trade secret rights, reserved.     *
 # ************************************************************
 try:
-    import sys
-    import os 
     import serial
-    import time
-    import getopt
-    import random
+    from os     import system 
+    from getopt import getopt
+    from random import randint
+    from sys    import exit, argv
+    from time   import sleep, time
 except ImportError, error:
     print "Error while loading modules: " + str(error)
 
-timeout = 2
+#Time constants
+timeout     = 2
+time_sleep  = 1
 
 #PIN and PUK codes
 PIN         = ''
@@ -52,6 +54,18 @@ class AT:
     def PUK_enter(PIN,PUK):
         return "AT+CPIN=" + PUK + "," + PIN + "\r\n"
 
+class label:
+    no_com_port_specified   = "No com port specified"
+    lock_failed             = "Lock failed - actual state: "
+    unlock_failed           = "Unlock failed - actual state: "
+    device_is_unlocked      = "Device is unlocked"
+    device_is_PIN_locked    = "Device is PIN locked"
+    device_is_PUK_locked    = "Device is PUK locked"
+    device_is_PIN2_locked   = "Device is PIN2 locked"
+    device_is_PUK2_locked   = "Device is PUK2 locked"   
+    device_is_SIM_locked    = "SIM lock is required"
+    device_is_PH_NT_locked  = "Network personalisation is required"
+       
 
 def main(argv):
 
@@ -61,43 +75,42 @@ def main(argv):
 
     if argv:
         try:
-            opts, args = getopt.getopt(argv, "hmc:lbpsr", ["help", "modem", "comport=", "lock", "block", "pin", "state",  "reset"])
+            opts, args = getopt(argv, "hmc:lbprs", ["help", "modem", "comport=", "lock", "block", "pin", "reset", "state"])
         except getopt.GetoptError:
             print "Invalid argument(s)"
-            sys.exit(1)
+            exit(1)
         for opt, arg in opts[:1]:
             if opt in ("-h", "--help"):
                 Options.help()
-                sys.exit(1)
+                exit(1)
             elif opt in ("-m", "--modem"):
                 Options.activate_modem()
-                sys.exit(1)
+                exit(1)
             elif opt in ("-c", "--comport"):
                 Methods.import_PIN()
                 Options.connect(connection,arg)
                 break
             else:
-                print "No com port specified"
-                assert False, "No com port specified"
+                print label.no_com_port_specified
+                assert False, label.no_com_port_specified
 
         for opt, arg in opts[1:]:
             if opt in ("-l", "--lock"):
                 Commands.pin_lock(connection)   
             elif opt in ("-b", "--block"):
-                #Commands.puk_block(connection)  
-                pass              
+                Commands.puk_block(connection)          
             elif opt in ("-p", "--pin"):
                 Commands.pin_enter(connection)    
-            elif opt in ("-s", "--state"):
-                Commands.pin_state(connection, True, True) 
             elif opt in ("-r", "--reset"):
                 Commands.pin_reset(connection)
+            elif opt in ("-s", "--state"):
+                Commands.pin_state(connection, True, True) 
             else:
-                print "No com port specified"
-                assert False, "No com port specified"    
+                print label.no_com_port_specified
+                assert False, label.no_com_port_specified
     else:
         Options.help()
-        sys.exit(1)
+        exit(1)
 
 ###############################################################################
 #                               OPTIONS                                       #
@@ -125,7 +138,7 @@ class Options:
     #============================== MODEM ===================================== OK
     @staticmethod
     def activate_modem():
-        os.system(Options.modem_activate)
+        system(Options.modem_activate)
 
     #============================== CONNECTION ================================ OK
     @staticmethod
@@ -138,12 +151,12 @@ class Options:
             connection.open()
         except Exception, error:
             print "Error while opening serial port: " + str(error)
-            sys.exit(1)
+            exit(1)
         if connection.isOpen():
             print "Connected at " + connection.name.upper() + " port" 
         else: 
             print "Port " + connection.name.upper() + " is not opened" 
-            sys.exit(1)
+            exit(1)
 
 ###############################################################################
 #                               COMMANDS                                      #
@@ -154,48 +167,57 @@ class Commands:
     def pin_lock(connection):    
         if AT.CPIN_ready == Commands.pin_state(connection):
             connection.write(AT.SIM_disable)
-            time.sleep(1)
+            sleep(time_sleep)
             print "Locking phone..."
             connection.write(AT.SIM_enable)
-            time.sleep(1)
+            sleep(time_sleep)
             if AT.lock_PIN == Commands.pin_state(connection):
-                print "Device is locked"
+                print label.device_is_PIN_locked
             else:
-                print "Lock failed - actual state: " + Commands.pin_state(connection)
-        elif Commands.pin_state(connection,True,True):
+                print label.lock_failed,; Commands.pin_state(connection, True, True)
+                print "Check if SIM card's PIN lock is enabled" 
+        elif Commands.pin_state(connection, True, True):
             pass
 
     #============================== PUK BLOCK ================================= TO DO
     @staticmethod
     def puk_block(connection):
-        if not connection.isOpen():
-            connection.open()
-        seq = []
-        leave = False
-        connection.write(AT.CPIN_check)
-        while True:
-            seq.append(connection.readline())
-            if AT.lock_PIN in seq:
-                for counter in range(3):
-                    wrong_PIN = Methods.random_PIN()
-                    #connection.write(AT.PIN_enter(wrong_PIN))
-                    print wrong_PIN
-                    time.sleep(1)
-                break
-        Commands.pin_state(connection)
-               
-        connection.close() 
+        if AT.CPIN_ready == Commands.pin_state(connection):
+            Commands.pin_lock(connection)
+        if AT.lock_PIN == Commands.pin_state(connection):
+            for counter in range(3):
+                connection.write(AT.PIN_enter(Methods.random_PIN(True)))
+                sleep(time_sleep)
+            if AT.lock_PUK == Commands.pin_state(connection):
+                print label.device_is_PUK_locked
+            else:
+                print label.lock_failed,; Commands.pin_state(connection, True, True)
+        elif Commands.pin_state(connection,True,True):
+            pass
 
     #============================== PIN ENTER ================================= OK
     @staticmethod
     def pin_enter(connection):
         if AT.lock_PIN == Commands.pin_state(connection):
             connection.write(AT.PIN_enter(PIN))
-            time.sleep(1)
+            sleep(time_sleep)
             if AT.CPIN_ready == Commands.pin_state(connection):
-                print "Device is unlocked"
+                print label.device_is_unlocked
             else:
-                print "Unlock failed - actual state: " + Commands.pin_state(connection)
+                print label.unlock_failed,; Commands.pin_state(connection, True, True)
+        elif Commands.pin_state(connection,True,True):
+            pass
+
+    #============================== PIN RESET ================================= OK
+    @staticmethod
+    def pin_reset(connection):
+        if AT.lock_PUK == Commands.pin_state(connection):
+            connection.write(AT.PUK_enter(PIN, PUK))
+            sleep(time_sleep)
+            if AT.CPIN_ready == Commands.pin_state(connection):
+                print label.device_is_unlocked
+            else:
+                print label.unlock_failed,; Commands.pin_state(connection, True, True)
         elif Commands.pin_state(connection,True,True):
             pass
 
@@ -206,85 +228,51 @@ class Commands:
             connection.open()
         seq = []
         connection.write(AT.CPIN_check)
-        end_time = time.time() + timeout
+        end_time = time() + timeout
         while True:
-            if time.time() >= end_time:
+            if time() >= end_time:
                 print "Timed Out"
-                sys.exit(1)
+                exit(1)
             else:
                 seq.append(connection.readline())
                 if AT.CPIN_ready in seq:
                     if printable == True:
-                        print "Device is unlocked"
+                        print label.device_is_unlocked
                     result = AT.CPIN_ready
                     break
                 elif AT.lock_PIN in seq:
                     if printable == True:
-                        print "Device is PIN locked"
+                        print label.device_is_PIN_locked
                     result = AT.lock_PIN
                     break
                 elif AT.lock_PUK in seq:
                     if printable == True:
-                        print "Device is PUK locked"
+                        print label.device_is_PUK_locked
                     result = AT.lock_PUK
                     break
                 elif AT.lock_PIN2 in seq:
                     if printable == True:
-                        print "Device is PIN2 locked"
+                        print label.device_is_PIN2_locked
                     result = AT.lock_PIN2
                     break
                 elif AT.lock_PUK2 in seq:
                     if printable == True:
-                        print "Device is PUK2 locked"
+                        print label.device_is_PUK2_locked
                     result = AT.lock_PUK2
                     break
                 elif AT.lock_PH_SIM in seq:
                     if printable == True:
-                        print "SIM lock is required"
+                        print label.device_is_SIM_locked
                     result = AT.lock_PH_SIM
                     break
                 elif AT.lock_PH_NT in seq:
                     if printable == True:
-                        print  "Network personalisation is required"
+                        print label.device_is_PH_NT_locked 
                     result = AT.lock_PH_NT
                     break 
         if disconnect == True:
             connection.close()
         return result 
-
-    #============================== PIN RESET ================================= TO DO
-    @staticmethod
-    def pin_reset(connection):
-        if not connection.isOpen():
-            connection.open()
-        seq = []
-        leave = False
-        connection.write(AT.CPIN_check)
-        while True:
-            seq.append(connection.readline())
-            if AT.lock_PUK in seq:
-                seq = []
-                connection.write(AT.PUK_enter(PIN,PUK))
-                time.sleep(1)
-                connection.write(AT.CPIN_check)
-                end_time = time.time() + timeout
-                while True:
-                    if time.time() >= end_time: 
-                        print "Timed Out"
-                        sys.exit(1)
-                    else:
-                        seq.append(connection.readline())
-                        if AT.CPIN_ready in seq:
-                            print "Device is unlocked"
-                            leave = True
-                            break
-            elif AT.OK in seq:
-                print "Device is not PUK locked"
-                break
-
-            if leave is True:
-                break
-        connection.close()   
 
 ###############################################################################
 #                               METHODS                                       #
@@ -302,8 +290,10 @@ class Methods:
                     seq = line.split(' ')               
                     if seq[0] == "PIN":
                         PIN = str(seq[2].rstrip('\r\n'))
+                        continue
                     if seq[0] == "PUK":
                         PUK = str(seq[2].rstrip('\r\n'))
+                        continue
         except IOError: 
             print "Could not read file: " + fName
             print "Using default codes"
@@ -315,21 +305,20 @@ class Methods:
         if answer == 'Y' or answer == '':
             pass
         else:
-            sys.exit(1)
+            exit(1)
 
     #============================== RANDOM PIN ================================ OK
     @staticmethod
-    def random_PIN():
+    def random_PIN(printable = False):
         wrong_PIN = ''
         for counter in range(4):
-            wrong_PIN += str(random.randint(0,9))
+            wrong_PIN += str(randint(0,9))
         if wrong_PIN == PIN:
             wrong_PIN = random_PIN()
+        if printable == True:
+            print wrong_PIN
         return wrong_PIN
 
 #============================== MAIN ========================================== OK
 if __name__ == "__main__":
-    main(sys.argv[1:])
-
-# Modify the PUK_block and PIN_reset function
-# Add labels
+    main(argv[1:])
