@@ -11,9 +11,9 @@
 # * All rights, including trade secret rights, reserved.     *
 # ************************************************************
 try:
+    import getopt
     import serial
     from os     import system 
-    from getopt import getopt
     from random import randint
     from sys    import exit, argv
     from time   import sleep, time
@@ -27,17 +27,17 @@ time_sleep  = 1
 #PIN and PUK codes
 PIN         = ''
 PUK         = ''
-PIN_def     = '1111'
-PUK_def     = '11111111'
 
 class AT:
     #COMMANDS
     CPIN_check  = 'AT+CPIN?\r\n'
+    CLCK_check  = 'AT+CLCK="SC",2\r\n'
     SIM_enable  = 'AT+CFUN=1\r\n'
     SIM_disable = 'AT+CFUN=0\r\n'
     
     #RESPONSES
     OK          = 'OK\r\n'
+    PIN_enabled = '+CLCK: 1\r\n'
     CPIN_ready  = '+CPIN: READY\r\n'
     lock_PIN    = '+CPIN: SIM PIN\r\n'
     lock_PUK    = '+CPIN: SIM PUK\r\n'
@@ -67,7 +67,7 @@ class label:
     device_is_PH_NT_locked  = "Network personalisation is required"
        
 
-def main(argv):
+def main(argv, PIN, PUK):
 
     connection = serial.Serial()
     connection.baudrate = 115200
@@ -75,9 +75,9 @@ def main(argv):
 
     if argv:
         try:
-            opts, args = getopt(argv, "hmc:lbprs", ["help", "modem", "comport=", "lock", "block", "pin", "reset", "state"])
-        except getopt.GetoptError:
-            print "Invalid argument(s)"
+            opts, args = getopt.getopt(argv, "hmc:lbprs", ["help", "modem", "comport=", "lock", "block", "pin", "reset", "state"])
+        except getopt.GetoptError, err:
+            print "Error: " + str(err)
             exit(1)
         for opt, arg in opts[:1]:
             if opt in ("-h", "--help"):
@@ -87,7 +87,7 @@ def main(argv):
                 Options.activate_modem()
                 exit(1)
             elif opt in ("-c", "--comport"):
-                Methods.import_PIN()
+                PIN, PUK = Methods.import_PIN(PIN, PUK)
                 Options.connect(connection,arg)
                 break
             else:
@@ -100,9 +100,9 @@ def main(argv):
             elif opt in ("-b", "--block"):
                 Commands.puk_block(connection)          
             elif opt in ("-p", "--pin"):
-                Commands.pin_enter(connection)    
+                Commands.pin_enter(connection, PIN)    
             elif opt in ("-r", "--reset"):
-                Commands.pin_reset(connection)
+                Commands.pin_reset(connection, PIN, PUK)
             elif opt in ("-s", "--state"):
                 Commands.pin_state(connection, True, True) 
             else:
@@ -175,21 +175,25 @@ class Commands:
                 print label.device_is_PIN_locked
             else:
                 print label.lock_failed,; Commands.pin_state(connection, True, True)
-                print "Check if SIM card's PIN lock is enabled" 
+                if Methods.check_PIN(connection, True) == True:
+                    print "Check if SIM card's PIN lock is enabled" 
         elif Commands.pin_state(connection, True, True):
             pass
 
-    #============================== PUK BLOCK ================================= TO DO
+    #============================== PUK BLOCK ================================= OK
     @staticmethod
     def puk_block(connection):
+        counter = 0
         if AT.CPIN_ready == Commands.pin_state(connection):
             Commands.pin_lock(connection)
         if AT.lock_PIN == Commands.pin_state(connection):
-            for counter in range(3):
+            while AT.lock_PUK != Commands.pin_state(connection) and counter < 3:
                 connection.write(AT.PIN_enter(Methods.random_PIN(True)))
                 sleep(time_sleep)
-            if AT.lock_PUK == Commands.pin_state(connection):
-                print label.device_is_PUK_locked
+                counter += 1
+                if AT.lock_PUK == Commands.pin_state(connection):
+                    print label.device_is_PUK_locked
+                    break
             else:
                 print label.lock_failed,; Commands.pin_state(connection, True, True)
         elif Commands.pin_state(connection,True,True):
@@ -197,7 +201,7 @@ class Commands:
 
     #============================== PIN ENTER ================================= OK
     @staticmethod
-    def pin_enter(connection):
+    def pin_enter(connection, PIN):
         if AT.lock_PIN == Commands.pin_state(connection):
             connection.write(AT.PIN_enter(PIN))
             sleep(time_sleep)
@@ -210,7 +214,7 @@ class Commands:
 
     #============================== PIN RESET ================================= OK
     @staticmethod
-    def pin_reset(connection):
+    def pin_reset(connection, PIN, PUK):
         if AT.lock_PUK == Commands.pin_state(connection):
             connection.write(AT.PUK_enter(PIN, PUK))
             sleep(time_sleep)
@@ -278,12 +282,13 @@ class Commands:
 #                               METHODS                                       #
 ###############################################################################
 class Methods:
-    fName = "PIN.txt"
+    fName   = "PIN.txt"
+    PIN_def = '1111'
+    PUK_def = '11111111'
+
     #============================== IMPORT PIN ================================ OK
     @staticmethod
-    def import_PIN():
-        global PIN
-        global PUK
+    def import_PIN(PIN, PUK):
         try:
             with open(Methods.fName) as file:
                 for line in file :
@@ -295,15 +300,15 @@ class Methods:
                         PUK = str(seq[2].rstrip('\r\n'))
                         continue
         except IOError: 
-            print "Could not read file: " + fName
+            print "Could not read file: " + Methods.fName
             print "Using default codes"
-            PIN = PIN_def
-            PUK = PUK_def   
+            PIN = Methods.PIN_def
+            PUK = Methods.PUK_def   
         print "PIN: " + PIN
         print "PUK: " + PUK
         answer = raw_input("Proceed? (Y/N): ").upper()
         if answer == 'Y' or answer == '':
-            pass
+            return (PIN, PUK)
         else:
             exit(1)
 
@@ -319,6 +324,25 @@ class Methods:
             print wrong_PIN
         return wrong_PIN
 
+    #============================== CHECK PIN ================================= to do
+    @staticmethod
+    def check_PIN(connection, printable=False):
+        if not connection.isOpen():
+            connection.open()
+        connection.write(AT.CLCK_check)
+        end_time = time() + timeout
+        while True:
+            if time() >= end_time:
+                break
+            else:
+                if AT.PIN_enabled in connection.readline():
+                    if printable == True:
+                        print "PIN lock is enabled"
+                    return True
+        print "PIN lock is not enabled"
+        return False    
+        connection.close()
+
 #============================== MAIN ========================================== OK
 if __name__ == "__main__":
-    main(argv[1:])
+    main(argv[1:], PIN, PUK)
